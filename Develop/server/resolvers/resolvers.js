@@ -3,73 +3,85 @@ const { signToken } = require('../utils/auth');
 
 const resolvers = {
   Query: {
-    getSingleUser: async ({ user = null, params }, res) => {
-      const foundUser = await User.findOne({
-        $or: [{ _id: user ? user._id : params.id }, { username: params.username }],
-      });
+    getSingleUser: async (parent, { id, username }, context) => {
+      const query = {
+        $or: [{ _id: id }, { username }],
+      };
+
+      const foundUser = await User.findOne(query);
 
       if (!foundUser) {
-        return res.status(400).json({ message: 'Cannot find a user with this id!' });
+        throw new Error("Cannot find a user with this id or username!");
       }
 
       return foundUser;
     },
   },
+
   Mutation: {
-    createUser: async ({ body }, res) => {
+    createUser: async (parent, { username, email, password }, context) => {
       try {
-        const user = await User.create(body);
+        const user = await User.create({ username, email, password });
 
         if (!user) {
-          return res.status(400).json({ message: 'Something is wrong!' });
+          throw new Error("Something went wrong while creating the user!");
         }
 
         const token = signToken(user);
+        console.log(token);
+        console.log(user);
         return { token, user };
       } catch (err) {
         console.log(err);
-        return res.status(400).json(err);
+        throw new Error("Error creating user.");
       }
     },
-    login: async ({ body }, res) => {
-      const user = await User.findOne({ $or: [{ username: body.username }, { email: body.email }] });
+    login: async (parent, { username, password }, context) => {
+      const user = await User.findOne({ $or: [{ username }, { email: username }] });
 
       if (!user) {
-        return res.status(400).json({ message: "Can't find this user" });
+        throw new Error("Can't find this user");
       }
 
-      const correctPw = await user.isCorrectPassword(body.password);
+      const correctPw = await user.isCorrectPassword(password);
 
       if (!correctPw) {
-        return res.status(400).json({ message: 'Wrong password!' });
+        throw new Error("Wrong password!");
       }
 
       const token = signToken(user);
       return { token, user };
     },
-    saveBook: async ({ user, body }, res) => {
-      try {
-        const updatedUser = await User.findOneAndUpdate(
+
+    saveBook: async (parent, { bookData }, { user }) => {
+      console.log(user);
+        try {
+        const updatedUser = await User.findByIdAndUpdate(
           { _id: user._id },
-          { $addToSet: { savedBooks: body } },
+          { $addToSet: { savedBooks: bookData } },
           { new: true, runValidators: true }
         );
+
+        if (!updatedUser) {
+          throw new Error("Couldn't find user with this id!");
+        }
 
         return updatedUser;
       } catch (err) {
         console.log(err);
-        return res.status(400).json(err);
+        throw new Error("Error saving book.");
       }
     },
-    deleteBook: async ({ user, params }, res) => {
+
+    deleteBook: async (parent, { bookId }, { user }) => {
       const updatedUser = await User.findOneAndUpdate(
         { _id: user._id },
-        { $pull: { savedBooks: { bookId: params.bookId } } },
+        { $pull: { savedBooks: { bookId } } },
         { new: true }
       );
 
       if (!updatedUser) {
-        return res.status(404).json({ message: "Couldn't find user with this id!" });
+        throw new Error("Couldn't find user with this id!");
       }
 
       return updatedUser;
